@@ -219,6 +219,47 @@ class UserTokenMiddleware(BaseHTTPMiddleware):
                 "UserTokenMiddleware initialized without mcp_server_ref. Path matching for MCP endpoint might fail if settings are needed."
             )
 
+    def _parse_auth_header(self, auth_header: str | None) -> tuple[str | None, dict[str, Any] | None]:
+        """Parse an authorization header and return (auth_type, credentials).
+
+        Args:
+            auth_header: The authorization header value
+
+        Returns:
+            Tuple of (auth_type, credentials_dict) or (None, None) if invalid
+        """
+        if not auth_header:
+            return None, None
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+            if not token:
+                return None, None
+            return "oauth", {"token": token}
+
+        elif auth_header.startswith("Token "):
+            token = auth_header.split(" ", 1)[1].strip()
+            if not token:
+                return None, None
+            return "pat", {"token": token}
+
+        elif auth_header.startswith("Basic "):
+            import base64
+            try:
+                basic_token = auth_header.split(" ", 1)[1].strip()
+                if not basic_token:
+                    return None, None
+                decoded = base64.b64decode(basic_token).decode("utf-8")
+                if ":" not in decoded:
+                    return None, None
+                username, api_token = decoded.split(":", 1)
+                return "basic", {"username": username, "token": api_token}
+            except Exception as e:
+                logger.error(f"Failed to decode Basic auth: {e}")
+                return None, None
+
+        return None, None
+
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> JSONResponse:
@@ -238,16 +279,19 @@ class UserTokenMiddleware(BaseHTTPMiddleware):
             f"UserTokenMiddleware.dispatch: Comparing request_path='{request_path}' with mcp_path='{mcp_path}'. Request method='{request.method}'"
         )
         if request_path == mcp_path and request.method == "POST":
+            # Check for service-specific authorization headers
+            jira_auth_header = request.headers.get("X-Jira-Authorization")
+            confluence_auth_header = request.headers.get("X-Confluence-Authorization")
+            # Fallback to general Authorization header
             auth_header = request.headers.get("Authorization")
             cloud_id_header = request.headers.get("X-Atlassian-Cloud-Id")
 
-            token_for_log = mask_sensitive(
-                auth_header.split(" ", 1)[1].strip()
-                if auth_header and " " in auth_header
-                else auth_header
-            )
             logger.debug(
-                f"UserTokenMiddleware: Path='{request.url.path}', AuthHeader='{mask_sensitive(auth_header)}', ParsedToken(masked)='{token_for_log}', CloudId='{cloud_id_header}'"
+                f"UserTokenMiddleware: Path='{request.url.path}', "
+                f"JiraAuth='{mask_sensitive(jira_auth_header)}', "
+                f"ConfluenceAuth='{mask_sensitive(confluence_auth_header)}', "
+                f"GeneralAuth='{mask_sensitive(auth_header)}', "
+                f"CloudId='{cloud_id_header}'"
             )
 
             # Extract and save cloudId if provided
@@ -258,9 +302,6 @@ class UserTokenMiddleware(BaseHTTPMiddleware):
                 )
             else:
                 request.state.user_atlassian_cloud_id = None
-                logger.debug(
-                    "UserTokenMiddleware: No cloudId header provided, will use global config"
-                )
 
             # Check for mcp-session-id header for debugging
             mcp_session_id = request.headers.get("mcp-session-id")
@@ -268,88 +309,62 @@ class UserTokenMiddleware(BaseHTTPMiddleware):
                 logger.debug(
                     f"UserTokenMiddleware: MCP-Session-ID header found: {mcp_session_id}"
                 )
-            if auth_header and auth_header.startswith("Bearer "):
-                token = auth_header.split(" ", 1)[1].strip()
-                if not token:
-                    return JSONResponse(
-                        {"error": "Unauthorized: Empty Bearer token"},
-                        status_code=401,
-                    )
+
+            # Parse service-specific auth headers
+            jira_auth_type, jira_creds = self._parse_auth_header(jira_auth_header)
+            confluence_auth_type, confluence_creds = self._parse_auth_header(confluence_auth_header)
+            general_auth_type, general_creds = self._parse_auth_header(auth_header)
+
+            # Set Jira-specific auth (prioritize service-specific header)
+            if jira_auth_type and jira_creds:
+                request.state.jira_auth_type = jira_auth_type
+                request.state.jira_token = jira_creds["token"]
+                request.state.jira_username = jira_creds.get("username")
+                logger.info(
+                    f"Jira service-specific auth: type={jira_auth_type}, "
+                    f"token=...{mask_sensitive(jira_creds['token'], 8)}"
+                )
+            elif general_auth_type and general_creds:
+                # Fallback to general auth for Jira
+                request.state.jira_auth_type = general_auth_type
+                request.state.jira_token = general_creds["token"]
+                request.state.jira_username = general_creds.get("username")
                 logger.debug(
-                    f"UserTokenMiddleware.dispatch: Bearer token extracted (masked): ...{mask_sensitive(token, 8)}"
+                    f"Jira using general auth: type={general_auth_type}"
                 )
-                request.state.user_atlassian_token = token
-                request.state.user_atlassian_auth_type = "oauth"
-                request.state.user_atlassian_email = None
+
+            # Set Confluence-specific auth (prioritize service-specific header)
+            if confluence_auth_type and confluence_creds:
+                request.state.confluence_auth_type = confluence_auth_type
+                request.state.confluence_token = confluence_creds["token"]
+                request.state.confluence_username = confluence_creds.get("username")
+                logger.info(
+                    f"Confluence service-specific auth: type={confluence_auth_type}, "
+                    f"token=...{mask_sensitive(confluence_creds['token'], 8)}"
+                )
+            elif general_auth_type and general_creds:
+                # Fallback to general auth for Confluence
+                request.state.confluence_auth_type = general_auth_type
+                request.state.confluence_token = general_creds["token"]
+                request.state.confluence_username = general_creds.get("username")
                 logger.debug(
-                    f"UserTokenMiddleware.dispatch: Set request.state (pre-validation): "
-                    f"auth_type='{getattr(request.state, 'user_atlassian_auth_type', 'N/A')}', "
-                    f"token_present={bool(getattr(request.state, 'user_atlassian_token', None))}"
+                    f"Confluence using general auth: type={general_auth_type}"
                 )
-            elif auth_header and auth_header.startswith("Token "):
-                token = auth_header.split(" ", 1)[1].strip()
-                if not token:
-                    return JSONResponse(
-                        {"error": "Unauthorized: Empty Token (PAT)"},
-                        status_code=401,
-                    )
+
+            # For backward compatibility, also set the old general auth attributes if using general header
+            if general_auth_type and general_creds and not (jira_auth_type or confluence_auth_type):
+                request.state.user_atlassian_auth_type = general_auth_type
+                request.state.user_atlassian_token = general_creds["token"]
+                request.state.user_atlassian_username = general_creds.get("username")
+                request.state.user_atlassian_email = general_creds.get("username") if general_auth_type == "basic" else None
                 logger.debug(
-                    f"UserTokenMiddleware.dispatch: PAT (Token scheme) extracted (masked): ...{mask_sensitive(token, 8)}"
+                    f"Set general auth for backward compatibility: type={general_auth_type}"
                 )
-                request.state.user_atlassian_token = token
-                request.state.user_atlassian_auth_type = "pat"
-                request.state.user_atlassian_email = (
-                    None  # PATs don't carry email in the token itself
-                )
+
+            if not (jira_auth_type or confluence_auth_type or general_auth_type):
                 logger.debug(
-                    "UserTokenMiddleware.dispatch: Set request.state for PAT auth."
-                )
-            elif auth_header and auth_header.startswith("Basic "):
-                import base64
-                try:
-                    basic_token = auth_header.split(" ", 1)[1].strip()
-                    if not basic_token:
-                        return JSONResponse(
-                            {"error": "Unauthorized: Empty Basic auth token"},
-                            status_code=401,
-                        )
-                    # Decode base64 credentials (format: username:password)
-                    decoded = base64.b64decode(basic_token).decode("utf-8")
-                    if ":" not in decoded:
-                        return JSONResponse(
-                            {"error": "Unauthorized: Invalid Basic auth format"},
-                            status_code=401,
-                        )
-                    username, api_token = decoded.split(":", 1)
-                    logger.debug(
-                        f"UserTokenMiddleware.dispatch: Basic auth extracted for user: {username}, token (masked): ...{mask_sensitive(api_token, 8)}"
-                    )
-                    request.state.user_atlassian_username = username
-                    request.state.user_atlassian_token = api_token
-                    request.state.user_atlassian_auth_type = "basic"
-                    request.state.user_atlassian_email = username  # Usually email for Cloud
-                    logger.debug(
-                        "UserTokenMiddleware.dispatch: Set request.state for Basic auth."
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to decode Basic auth: {e}")
-                    return JSONResponse(
-                        {"error": "Unauthorized: Invalid Basic auth encoding"},
-                        status_code=401,
-                    )
-            elif auth_header:
-                logger.warning(
-                    f"Unsupported Authorization type for {request.url.path}: {auth_header.split(' ', 1)[0] if ' ' in auth_header else 'UnknownType'}"
-                )
-                return JSONResponse(
-                    {
-                        "error": "Unauthorized: Only 'Bearer <OAuthToken>' or 'Token <PAT>' types are supported."
-                    },
-                    status_code=401,
-                )
-            else:
-                logger.debug(
-                    f"No Authorization header provided for {request.url.path}. Will proceed with global/fallback server configuration if applicable."
+                    f"No authentication headers provided for {request.url.path}. "
+                    "Will proceed with global/fallback server configuration if applicable."
                 )
         response = await call_next(request)
         logger.debug(

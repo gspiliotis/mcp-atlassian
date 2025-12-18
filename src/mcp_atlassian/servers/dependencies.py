@@ -202,18 +202,30 @@ async def get_jira_fetcher(ctx: Context) -> JiraFetcher:
         if hasattr(request.state, "jira_fetcher") and request.state.jira_fetcher:
             logger.debug("get_jira_fetcher: Returning JiraFetcher from request.state.")
             return request.state.jira_fetcher
+
+        # Check for Jira-specific auth first, then fall back to general auth
+        jira_auth_type = getattr(request.state, "jira_auth_type", None)
         user_auth_type = getattr(request.state, "user_atlassian_auth_type", None)
-        logger.debug(f"get_jira_fetcher: User auth type: {user_auth_type}")
-        # If OAuth, PAT, or Basic auth is present, create user-specific fetcher
-        if user_auth_type in ["oauth", "pat", "basic"] and hasattr(
-            request.state, "user_atlassian_token"
-        ):
+
+        # Prioritize Jira-specific auth
+        if jira_auth_type:
+            user_auth_type = jira_auth_type
+            user_token = getattr(request.state, "jira_token", None)
+            user_username = getattr(request.state, "jira_username", None)
+            logger.debug(f"get_jira_fetcher: Using Jira-specific auth type: {jira_auth_type}")
+        else:
             user_token = getattr(request.state, "user_atlassian_token", None)
-            user_email = getattr(
-                request.state, "user_atlassian_email", None
-            )  # May be None for PAT
             user_username = getattr(request.state, "user_atlassian_username", None)
-            user_cloud_id = getattr(request.state, "user_atlassian_cloud_id", None)
+            logger.debug(f"get_jira_fetcher: Using general auth type: {user_auth_type}")
+
+        user_email = getattr(
+            request.state, "user_atlassian_email", None
+        )  # May be None for PAT
+        user_cloud_id = getattr(request.state, "user_atlassian_cloud_id", None)
+
+        logger.debug(f"get_jira_fetcher: Final auth type: {user_auth_type}, has_token: {user_token is not None}")
+        # If OAuth, PAT, or Basic auth is present, create user-specific fetcher
+        if user_auth_type in ["oauth", "pat", "basic"] and user_token:
 
             if not user_token:
                 raise ValueError("User Atlassian token found in state but is empty.")
@@ -316,15 +328,27 @@ async def get_confluence_fetcher(ctx: Context) -> ConfluenceFetcher:
                 "get_confluence_fetcher: Returning ConfluenceFetcher from request.state."
             )
             return request.state.confluence_fetcher
+
+        # Check for Confluence-specific auth first, then fall back to general auth
+        confluence_auth_type = getattr(request.state, "confluence_auth_type", None)
         user_auth_type = getattr(request.state, "user_atlassian_auth_type", None)
-        logger.debug(f"get_confluence_fetcher: User auth type: {user_auth_type}")
-        if user_auth_type in ["oauth", "pat", "basic"] and hasattr(
-            request.state, "user_atlassian_token"
-        ):
+
+        # Prioritize Confluence-specific auth
+        if confluence_auth_type:
+            user_auth_type = confluence_auth_type
+            user_token = getattr(request.state, "confluence_token", None)
+            user_username = getattr(request.state, "confluence_username", None)
+            logger.debug(f"get_confluence_fetcher: Using Confluence-specific auth type: {confluence_auth_type}")
+        else:
             user_token = getattr(request.state, "user_atlassian_token", None)
-            user_email = getattr(request.state, "user_atlassian_email", None)
             user_username = getattr(request.state, "user_atlassian_username", None)
-            user_cloud_id = getattr(request.state, "user_atlassian_cloud_id", None)
+            logger.debug(f"get_confluence_fetcher: Using general auth type: {user_auth_type}")
+
+        user_email = getattr(request.state, "user_atlassian_email", None)
+        user_cloud_id = getattr(request.state, "user_atlassian_cloud_id", None)
+
+        logger.debug(f"get_confluence_fetcher: Final auth type: {user_auth_type}, has_token: {user_token is not None}")
+        if user_auth_type in ["oauth", "pat", "basic"] and user_token:
 
             if not user_token:
                 raise ValueError("User Atlassian token found in state but is empty.")
