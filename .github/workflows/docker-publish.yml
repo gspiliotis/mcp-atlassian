@@ -2,6 +2,8 @@ name: Docker Publish
 
 on:
   push:
+    branches:
+      - main     # Build on every push to main
     tags:
       - 'v*.*.*' # Trigger on version tag pushes (e.g., v0.7.1)
   pull_request:
@@ -11,6 +13,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  # This will automatically use your repository (e.g., ghcr.io/gspiliotis/mcp-atlassian)
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
@@ -39,14 +42,14 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            # Create 'latest' tag on push to main branch
+            type=raw,value=latest,enable={{is_default_branch}}
             # Create 'main' tag on push to main branch
-            type=ref,event=branch,branch=main
+            type=ref,event=branch,enable={{is_default_branch}}
             # Create 'X.Y.Z', 'X.Y', 'X' tags on tag push (e.g., v1.2.3 -> 1.2.3, 1.2, 1)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # Only create 'latest' tag if it's a tag push AND it's a non-prerelease version tag (no '-')
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
             # Create a tag for PRs (e.g., pr-123) - useful for testing PR builds
             type=ref,event=pr
             # For manual workflow runs, use branch name with 'manual' suffix
