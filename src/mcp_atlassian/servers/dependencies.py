@@ -212,18 +212,24 @@ async def get_jira_fetcher(ctx: Context) -> JiraFetcher:
             user_auth_type = jira_auth_type
             user_token = getattr(request.state, "jira_token", None)
             user_username = getattr(request.state, "jira_username", None)
-            logger.debug(f"get_jira_fetcher: Using Jira-specific auth type: {jira_auth_type}")
+            logger.debug(
+                f"get_jira_fetcher: Using Jira-specific auth type: {jira_auth_type}"
+            )
         else:
             user_token = getattr(request.state, "user_atlassian_token", None)
             user_username = getattr(request.state, "user_atlassian_username", None)
-            logger.debug(f"get_jira_fetcher: Using general auth type: {user_auth_type}")
+            logger.debug(
+                f"get_jira_fetcher: Using general auth type: {user_auth_type}"
+            )
 
         user_email = getattr(
             request.state, "user_atlassian_email", None
         )  # May be None for PAT
         user_cloud_id = getattr(request.state, "user_atlassian_cloud_id", None)
 
-        logger.debug(f"get_jira_fetcher: Final auth type: {user_auth_type}, has_token: {user_token is not None}")
+        logger.debug(
+            f"get_jira_fetcher: Final auth type: {user_auth_type}, has_token: {user_token is not None}"
+        )
         # If OAuth, PAT, or Basic auth is present, create user-specific fetcher
         if user_auth_type in ["oauth", "pat", "basic"] and user_token:
 

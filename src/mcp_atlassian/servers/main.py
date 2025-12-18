@@ -219,7 +219,9 @@ class UserTokenMiddleware(BaseHTTPMiddleware):
                 "UserTokenMiddleware initialized without mcp_server_ref. Path matching for MCP endpoint might fail if settings are needed."
             )
 
-    def _parse_auth_header(self, auth_header: str | None) -> tuple[str | None, dict[str, Any] | None]:
+    def _parse_auth_header(
+            self, auth_header: str | None
+    ) -> tuple[str | None, dict[str, Any] | None]:
         """Parse an authorization header and return (auth_type, credentials).
 
         Args:
@@ -312,7 +314,9 @@ class UserTokenMiddleware(BaseHTTPMiddleware):
 
             # Parse service-specific auth headers
             jira_auth_type, jira_creds = self._parse_auth_header(jira_auth_header)
-            confluence_auth_type, confluence_creds = self._parse_auth_header(confluence_auth_header)
+            confluence_auth_type, confluence_creds = self._parse_auth_header(
+                confluence_auth_header
+            )
             general_auth_type, general_creds = self._parse_auth_header(auth_header)
 
             # Set Jira-specific auth (prioritize service-specific header)
