@@ -76,8 +76,5 @@ playground/
 # Claude
 .claude/
 
-# test files
-test_claude_desktop_client.py
-
 # logs
 *server*.log

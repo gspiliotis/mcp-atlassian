@@ -51,6 +51,3 @@ docs/
 *.tmp
 *.bak
 *.backup
-
-# test files
-test_claude_desktop_client.py
