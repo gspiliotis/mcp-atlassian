@@ -1,0 +1,36 @@
+# Example backend configuration for remote state storage
+# Copy this file to backend.tf and customize for your environment
+
+# Option 1: S3 Backend (recommended for AWS)
+terraform {
+  backend "s3" {
+    bucket         = "your-terraform-state-bucket"
+    key            = "mcp-atlassian/terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "terraform-state-lock"
+
+    # Optional: Use KMS encryption
+    # kms_key_id = "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012"
+  }
+}
+
+# Prerequisites for S3 backend:
+# 1. Create S3 bucket:
+#    aws s3 mb s3://your-terraform-state-bucket --region us-east-1
+#    aws s3api put-bucket-versioning \
+#      --bucket your-terraform-state-bucket \
+#      --versioning-configuration Status=Enabled
+#    aws s3api put-bucket-encryption \
+#      --bucket your-terraform-state-bucket \
+#      --server-side-encryption-configuration '{
+#        "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]
+#      }'
+#
+# 2. Create DynamoDB table for state locking:
+#    aws dynamodb create-table \
+#      --table-name terraform-state-lock \
+#      --attribute-definitions AttributeName=LockID,AttributeType=S \
+#      --key-schema AttributeName=LockID,KeyType=HASH \
+#      --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+#      --region us-east-1

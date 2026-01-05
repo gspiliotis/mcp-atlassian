@@ -1,0 +1,80 @@
+# AWS Configuration
+aws_region = "us-east-1"
+
+common_tags = {
+  Project     = "mcp-atlassian"
+  ManagedBy   = "terraform"
+  Environment = "production"
+  Team        = "platform"
+  CostCenter  = "engineering"
+}
+
+# Networking (REQUIRED)
+vpc_id             = "vpc-xxxxxxxxxxxxxxxxx"  # Your VPC ID
+private_subnet_id  = "subnet-xxxxxxxxxxxxxxxxx"  # Your private subnet with NAT gateway
+
+# Route53 (REQUIRED)
+route53_zone_id = "Z1234567890ABC"  # Your private hosted zone ID
+hostname        = "atlassian-mcp.mydomain.net"
+
+# Service Configuration
+service_name = "mcp-atlassian"
+service_port = 9000
+container_port = 9000
+
+# Container Configuration
+container_image     = "ghcr.io/sooperset/mcp-atlassian"
+container_image_tag = "latest"  # or specify a version like "v1.0.0"
+
+# MCP server runs with streamable-http transport on port 9000
+# Users provide authentication via HTTP headers (no server-level auth)
+container_command = [
+  "--transport",
+  "streamable-http",
+  "--port",
+  "9000",
+  "-vv"
+]
+
+# Environment Variables
+# These are minimal since users provide their own credentials via HTTP headers
+environment_variables = [
+  {
+    name  = "MCP_VERBOSE"
+    value = "true"
+  },
+  {
+    name  = "MCP_LOGGING_STDOUT"
+    value = "true"
+  },
+  {
+    name  = "ATLASSIAN_OAUTH_ENABLE"
+    value = "true"
+  }
+  # Add any additional global configuration here
+  # Note: Do NOT add user credentials here - they are provided per-request via headers
+]
+
+# ECS Task Configuration
+task_cpu    = "512"   # 256, 512, 1024, 2048, 4096
+task_memory = "1024"  # Memory in MB
+desired_count = 2     # Number of tasks to run
+
+# Auto Scaling
+enable_autoscaling        = true
+autoscaling_min_capacity  = 2
+autoscaling_max_capacity  = 10
+autoscaling_cpu_target    = 70
+autoscaling_memory_target = 80
+
+# PrivateLink Configuration
+privatelink_acceptance_required = false  # Set to true to manually accept endpoint connections
+
+# Logging
+log_retention_days = 30
+
+# Feature Flags
+enable_container_insights   = true
+enable_ecs_exec            = true  # Allows debugging via ECS Exec
+enable_deletion_protection = false  # Set to true in production
+enable_bedrock_permissions = false  # Set to true if tasks need to call Bedrock APIs
